@@ -7,6 +7,15 @@ import Badge from "@/components/atoms/Badge";
 import Checkbox from "@/components/atoms/Checkbox";
 import { format, isToday, isYesterday } from "date-fns";
 
+// Initialize ApperSDK for Edge function calls
+let ApperClient = null;
+if (typeof window !== 'undefined' && window.ApperSDK) {
+  ApperClient = new window.ApperSDK.ApperClient({
+    apperProjectId: import.meta.env.VITE_APPER_PROJECT_ID,
+    apperPublicKey: import.meta.env.VITE_APPER_PUBLIC_KEY
+  });
+}
+
 const TaskCard = ({ 
   task, 
   onToggleComplete, 
@@ -48,10 +57,35 @@ const TaskCard = ({
     return configs[priority] || configs.medium;
   };
 
-  const handleToggleComplete = async () => {
+const handleToggleComplete = async () => {
     setIsUpdating(true);
     try {
       await onToggleComplete?.(task.Id);
+      
+      // Send email notification if task is being completed and ApperSDK is available
+      if (!task.completed && ApperClient) {
+        try {
+          const result = await ApperClient.functions.invoke(import.meta.env.VITE_SEND_TASK_COMPLETION_EMAIL, {
+            body: JSON.stringify({
+              taskTitle: task.title,
+              taskDescription: task.description,
+              assignee: task.assignee,
+              priority: task.priority,
+              recipientEmail: task.assignee ? `${task.assignee.toLowerCase().replace(' ', '.')}@company.com` : 'admin@company.com'
+            }),
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          const responseData = await result.json();
+          if (!responseData.success) {
+            console.info(`apper_info: An error was received in this function: ${import.meta.env.VITE_SEND_TASK_COMPLETION_EMAIL}. The response body is: ${JSON.stringify(responseData)}.`);
+          }
+        } catch (error) {
+          console.info(`apper_info: An error was received in this function: ${import.meta.env.VITE_SEND_TASK_COMPLETION_EMAIL}. The error is: ${error.message}`);
+        }
+      }
     } catch (error) {
       console.error("Error toggling task:", error);
     } finally {
